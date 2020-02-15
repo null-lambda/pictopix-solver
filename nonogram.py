@@ -1,11 +1,7 @@
 from functools import reduce
 from itertools import accumulate, chain
-from typing import List, Tuple
 from collections import deque
-
-Line = List[int]
-Grid = List[Line]
-Clue = Tuple[int]
+import time
 
 class MultisetNode:
     def __init__(self, data, next_nodes):
@@ -109,16 +105,17 @@ class MultisetGraph:
         self.nodes = [node for node in self.nodes if node.connected()]
 
 class Nonogram:
-    def __init__(self, clues: Tuple[List[Clue], List[Clue]]):
+    def __init__(self, clues, *, callback=None):
         self.clues = clues 
+        self.callback = callback
 
     @staticmethod 
     def _transpose(grid):
         return list(zip(*grid))
 
     @staticmethod
-    def _gen_line_candidates(clue: Clue, line: Line) -> [Line]:
-        n, k = len(line), len(clue)
+    def _gen_line_candidates(clue, line_length):
+        n, k = line_length, len(clue)
         n_filled = sum(clue)
         n_gap = k - 1
         n_free = n - n_filled - n_gap
@@ -136,7 +133,7 @@ class Nonogram:
         return graph
 
     @staticmethod 
-    def _zip_cands(cands, line_length):
+    def _zip_graph(cands, line_length):
         base_path = next(cands.paths())
         base = [0] * line_length
         for node in base_path:
@@ -157,40 +154,6 @@ class Nonogram:
             for j in range(idx_start, idx_end):
                 if base[j] == 1:
                     base[j] = -1
-
-        """ def merge_ranges(intervals):
-            if not intervals:
-                return 
-            intervals = sorted(intervals)
-            current_start, current_end = intervals[0]
-            for (start, end) in intervals[1:]:
-                if start < current_end:
-                    current_end = max(end, current_end)
-                else:
-                    yield (current_start, current_end)
-                    (current_start, current_end) = (start, end)
-            yield (current_start, current_end)
-
-        # search '1' cells
-        interval_1s = []
-        for node in cands.nodes:
-            (idx_start, idx_end) = node.data 
-            interval_1s.append((idx_start, idx_end))
-        for idx_start, idx_end in merge_ranges(interval_1s):
-            for j in range(idx_start, idx_end):
-                if base[j] == 0:
-                    base[j] = -1
-
-        # search '0' cells
-        interval_0s = []
-        for node1, node2 in cands.edges:
-            (_, idx_start) = node1.data
-            (idx_end, _) = node2.data  
-            interval_0s.append((idx_start, idx_end))
-        for idx_start, idx_end in merge_ranges(interval_0s):
-            for j in range(idx_start, idx_end):
-                if base[j] == 1:
-                    base[j] = -1 """
         
         return base 
 
@@ -210,77 +173,81 @@ class Nonogram:
             if any(line[j] == 1 for j in range(idx_start, idx_end)):
                 cands.dissolve_edge(node1, node2)
         cands.clean_dissolved_nodes()
-
-        return cands
+        
 
     @staticmethod 
-    def _finished(grid: [Line]) -> bool:
-        return all(x != -1 for row in grid for x in row)
+    def _finished(grid):
+        return all(x != -1 for x in grid)
 
     def solve(self):
         (clues_v, clues_h) = self.clues 
         c, r = len(clues_v), len(clues_h)
-        grid_t = [[-1 for i in range(r)] for j in range(c)]
 
-        cands_v = [self._gen_line_candidates(clue, line) for clue, line in zip(clues_v, grid_t)]
-        grid_t = [self._zip_cands(cands, r) for cands in cands_v]
-        grid = self._transpose(grid_t)
-
-        cands_h = [self._gen_line_candidates(clue, line) for clue, line in zip(clues_h, grid)]
-        #print_grid(grid)
+        grid = [-1 for _ in range(r * c)]
+        rows = [[j * c + i for i in range(c)] for j in range(r)]
+        cols = [[j * c + i for j in range(r)] for i in range(c)]
+        lines = rows + cols 
+        clues = clues_h + clues_v
+        cands = []
+        for clue, line in zip(clues, lines):
+            graph = self._gen_line_candidates(clue, len(line))
+            cands.append((graph, line))
+        for graph, line in cands: 
+            for idx, cell_value in zip(line, self._zip_graph(graph, len(line))):
+                grid[idx] = cell_value
+        #print_grid([[grid[idx] for idx in row] for row in rows])
 
         while not self._finished(grid):
-            cands_h = [self._filter_cands(cand, line) for cand, line in zip(cands_h, grid)]
-            grid = [self._zip_cands(cands, c) for cands in cands_h]
-            #print_grid(grid)
-
-            grid_t = self._transpose(grid)
-            cands_v = [self._filter_cands(cand, line) for cand, line in zip(cands_v, grid_t)]
-            grid_t = [self._zip_cands(cands, r) for cands in cands_v]
-            grid = self._transpose(grid_t)
-            #print_grid(grid)
-        
-        return tuple(tuple(row) for row in grid)
+            for graph, line in cands:
+                cells = [grid[idx] for idx in line]
+                self._filter_cands(graph, cells)
+                cells_updated = self._zip_graph(graph, len(line))
+                for idx, cell_value in zip(line, cells_updated):
+                    grid[idx] = cell_value
+                if self.callback:
+                    self.callback(call_location='line_update', grid=grid, rows=rows, cols=cols, line=line)
+            if self.callback:
+                self.callback(call_location='grid_update', grid=grid, rows=rows, cols=cols)
+        return [[grid[idx] for idx in row] for row in rows]
 
 def print_grid(grid):
     cell_to_char = {-1: '_ ', 0: '0 ', 1: '1 '}
     for row in grid: 
         print(''.join(cell_to_char[i] for i in row))
     print()
-        
-def solve(clues, width, height):
-    # print(width, height, clues)
-    return Nonogram(clues).solve()
     
-
+    
 def test():
-    v_clues = ((1, 1, 3), (3, 2, 1, 3), (2, 2), (3, 6, 3),
-               (3, 8, 2), (15,), (8, 5), (15,),
-               (7, 1, 4, 2), (7, 9,), (6, 4, 2,), (2, 1, 5, 4),
-               (6, 4), (2, 6), (2, 5), (5, 2, 1),
-               (6, 1), (3, 1), (1, 4, 2, 1), (2, 2, 2, 2))
-    h_clues = ((2, 1, 1), (3, 4, 2), (4, 4, 2), (8, 3),
-               (7, 2, 2), (7, 5), (9, 4), (8, 2, 3),
-               (7, 1, 1), (6, 2), (5, 3), (3, 6, 3),
-               (2, 9, 2), (1, 8), (1, 6, 1), (3, 1, 6),
-               (5, 5), (1, 3, 8), (1, 2, 6, 1), (1, 1, 1, 3, 2))
-    args = ((v_clues, h_clues), 20, 20)
+    def test_cases():
+        v_clues = ((1, 1, 3), (3, 2, 1, 3), (2, 2), (3, 6, 3),
+            (3, 8, 2), (15,), (8, 5), (15,),
+            (7, 1, 4, 2), (7, 9,), (6, 4, 2,), (2, 1, 5, 4),
+            (6, 4), (2, 6), (2, 5), (5, 2, 1),
+            (6, 1), (3, 1), (1, 4, 2, 1), (2, 2, 2, 2))
+        h_clues = ((2, 1, 1), (3, 4, 2), (4, 4, 2), (8, 3),
+            (7, 2, 2), (7, 5), (9, 4), (8, 2, 3),
+            (7, 1, 1), (6, 2), (5, 3), (3, 6, 3),
+            (2, 9, 2), (1, 8), (1, 6, 1), (3, 1, 6),
+            (5, 5), (1, 3, 8), (1, 2, 6, 1), (1, 1, 1, 3, 2))
+        yield (v_clues, h_clues)
+        v_clues = ((2, 2), (1, 1, 2, 1), (1, 2, 1, 1, 1), (1, 2, 1, 1, 2), 
+            (2, 1, 2, 3), (2, 1, 3, 2), (1, 3, 1, 1, 1, 1), 
+            (1, 1, 1, 2, 2, 1), (2, 1, 5, 2, 1), (2, 1, 1, 2), 
+            (1, 1), (2, 2), (1, 1), (1, 1), (1, 1))
+        h_clues = ((1, 1, 2), (1, 1, 1, 1, 2), (2, 3, 1, 1), (2, 2, 1), (1, 1, 2), 
+            (1, 2, 1, 4), (1, 4), (5,), (1, 5), (2, 2, 1, 4), (1, 2, 2), 
+            (1, 1, 1, 2), (2, 1, 2, 1), (2, 1, 1, 1), (1, 2))
+        yield (v_clues, h_clues)
 
-    grid = solve(*args)
-    print_grid(grid)
+    def callback(**kwargs):
+        if kwargs['call_location'] == 'grid_update':
+            grid, rows = kwargs['grid'], kwargs['rows']
+            print_grid([[grid[idx] for idx in row] for row in rows])
+            time.sleep(0.1)
 
-    v_clues = ((2, 2), (1, 1, 2, 1), (1, 2, 1, 1, 1), (1, 2, 1, 1, 2), 
-           (2, 1, 2, 3), (2, 1, 3, 2), (1, 3, 1, 1, 1, 1), 
-           (1, 1, 1, 2, 2, 1), (2, 1, 5, 2, 1), (2, 1, 1, 2), 
-           (1, 1), (2, 2), (1, 1), (1, 1), (1, 1))
-    h_clues = ((1, 1, 2), (1, 1, 1, 1, 2), (2, 3, 1, 1), (2, 2, 1), (1, 1, 2), 
-               (1, 2, 1, 4), (1, 4), (5,), (1, 5), (2, 2, 1, 4), (1, 2, 2), 
-               (1, 1, 1, 2), (2, 1, 2, 1), (2, 1, 1, 1), (1, 2))
-    args = ((v_clues, h_clues), 15, 15)
-
-    grid = solve(*args)
-    print_grid(grid)
-    
+    for args in test_cases():
+        grid = Nonogram(args, callback=None).solve()
+        print_grid(grid)
 
 if __name__ == "__main__":
     test()
