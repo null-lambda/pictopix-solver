@@ -1,4 +1,4 @@
-from itertools import accumulate, chain
+from itertools import accumulate, chain, groupby
 import time
 
 
@@ -176,10 +176,6 @@ class Nonogram:
                 cands.dissolve_edge(node1, node2)
         cands.clean_dissolved_nodes()
 
-    @staticmethod
-    def _finished(grid):
-        return all(x != -1 for x in grid)
-
     def solve(self):
         (clues_v, clues_h) = self.clues
         c, r = len(clues_v), len(clues_h)
@@ -196,9 +192,9 @@ class Nonogram:
         for graph, line in cands:
             for idx, cell_value in zip(line, self._zip_graph(graph, len(line))):
                 grid[idx] = cell_value
-        #print_grid([[grid[idx] for idx in row] for row in rows])
 
-        while not self._finished(grid):
+        fixed, grid_prev = False, None
+        while not fixed:
             for graph, line in cands:
                 cells = [grid[idx] for idx in line]
                 self._filter_cands(graph, cells)
@@ -209,8 +205,29 @@ class Nonogram:
                     self.callback(call_location='line_update',
                                   grid=grid, rows=rows, cols=cols, line=line)
             if self.callback:
-                self.callback(call_location='grid_update',
-                              grid=grid, rows=rows, cols=cols)
+                self.callback(call_location='grid_update', grid=grid, rows=rows, cols=cols)
+            fixed = grid_prev == grid
+            grid_prev = grid[:]
+        finished = all(cell != -1 for cell in grid)
+        if not finished:
+            print('undetermined solution')
+            return [[grid[idx] for idx in row] for row in rows]
+
+        valid = True
+        for clue, line in zip(clues, lines):
+            segments = []
+            for k, g in groupby(enumerate(line), key=lambda i: grid[i[1]]):
+                if k == 1:
+                    g = list(g)
+                    start, end = g[0][0], g[-1][0]
+                    segments.append(end - start + 1)
+            if len(segments) == 0:
+                segments = [0]
+            valid = valid and (clue == tuple(segments))
+            print(clue, segments)
+        if not valid:
+            print('invalid solution')
+            return None
         return [[grid[idx] for idx in row] for row in rows]
 
 
