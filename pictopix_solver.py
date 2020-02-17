@@ -1,9 +1,9 @@
-from pathlib import Path
-from os import walk
-from zipfile import ZipFile
 import re
+from os import walk
+from pathlib import Path
 from statistics import median_grouped
 from time import sleep
+from zipfile import ZipFile
 import cv2
 import numpy as np
 from sklearn.linear_model import LinearRegression
@@ -87,7 +87,6 @@ def read_number(clue_img, digit_imgs, index_str):
     x_pad, y_pad = abs(50 - w) // 2, 3
     v_paddings = cv2.copyMakeBorder(
         v, y_pad, y_pad, x_pad, x_pad, cv2.BORDER_CONSTANT)
-
     scores_x = []
     scores_xx = []
     for d_img, digit in digit_imgs:
@@ -131,7 +130,7 @@ def read_puzzle(img):
     bounding_rects = [cv2.boundingRect(cnt) for cnt in contours]
     cws, chs = [t[2] for t in bounding_rects], [t[3] for t in bounding_rects]
     cw, ch = median_grouped(cws) + 1, median_grouped(chs) + 1
-    r, c = int(gw / cw), int(gh / ch)
+    c, r = int(gw / cw), int(gh / ch)
     # print(r, c)
     r, c = int(r / 5 + .5) * 5, int(c / 5 + .5) * 5
     cw, ch = gw / c, gh / r
@@ -216,7 +215,6 @@ def read_puzzle(img):
 
     cv2.imwrite(
         f'images/output/clue_debug{r,c,sum(map(len, clues_h))}.png', img_debug)
-    print(f'images/output/clue_debug{r,c,sum(map(len, clues_h))}.png')
     return grid_rect, clues
 
 
@@ -233,6 +231,7 @@ def test():
 
 def test_interactive():
     from PIL import ImageGrab
+    import time
     import win32gui
     import threading
     from pynput import mouse, keyboard
@@ -252,7 +251,7 @@ def test_interactive():
             mouse_controller = mouse.Controller()
             pos_backup = mouse_controller.position
             mouse_controller.position = (x + 10, y + 10)
-            sleep(0.03)
+            sleep(0.1)
             img = ImageGrab.grab(bbox)
             mouse_controller.position = pos_backup
             
@@ -262,12 +261,18 @@ def test_interactive():
             return None
 
     def capture_and_solve_task():
+
         try:
             img = get_image()
             img = np.array(img)
             img_rgb = cv2.cvtColor(np.array(img), cv2.COLOR_BGR2RGB)
             grid_rect, clues = read_puzzle(img)
+            time_start = time.process_time()
             grid = nonogram.Nonogram(clues, callback=None).solve()
+            if grid is None:
+                return None, None
+            time_end = time.process_time()
+            print(f'nonogram solved ({time_end - time_start:.3f}s)')
             nonogram.print_grid(grid)
             return grid_rect, grid
         except Exception as e:
@@ -310,6 +315,12 @@ def test_interactive():
     task_thread_active, task_thread = False, None
     grid_rect, grid = None, None
 
+    def task_wrapper(func):
+        nonlocal task_thread_active
+        task_thread_active = True
+        func()
+        task_thread_active = False
+
     def on_press(key):
         if key == keyboard.KeyCode(char='q'):
             return False
@@ -317,30 +328,25 @@ def test_interactive():
             if str(key) in 't y r'.split():
                 print(f'key {key} pressed')
             if key == keyboard.KeyCode(char='t'):
-                def task_wrapper():
-                    nonlocal task_thread_active, grid_rect, grid
-                    task_thread_active = True
+                @task_wrapper
+                def func1():
+                    nonlocal grid_rect, grid
                     grid_rect, grid = capture_and_solve_task()
-                    task_thread_active = False
-                task_thread = threading.Thread(target=task_wrapper)
+                task_thread = threading.Thread(target=func1)
                 task_thread.start()
             elif key == keyboard.KeyCode(char='y') and grid_rect is not None:
-                def task_wrapper():
-                    nonlocal task_thread_active
-                    task_thread_active = True
+                @task_wrapper 
+                def func2():
                     fill_task(grid_rect, grid)
-                    task_thread_active = False
-                task_thread = threading.Thread(target=task_wrapper)
+                task_thread = threading.Thread(target=func2)
                 task_thread.start()
             elif key == keyboard.KeyCode(char='r'):
-                def task_wrapper():
-                    nonlocal task_thread_active
-                    task_thread_active = True
+                @task_wrapper
+                def func3():
                     grid_rect, grid = capture_and_solve_task()
                     if grid_rect is not None:
                         fill_task(grid_rect, grid)
-                    task_thread_active = False
-                task_thread = threading.Thread(target=task_wrapper)
+                task_thread = threading.Thread(target=func3)
                 task_thread.start()
 
     with keyboard.Listener(on_press=on_press) as key_listener:
