@@ -224,7 +224,6 @@ class Nonogram:
             if len(segments) == 0:
                 segments = [0]
             valid = valid and (clue == tuple(segments))
-            print(clue, segments)
         if not valid:
             print('invalid solution')
             return None

@@ -1,9 +1,9 @@
-from pathlib import Path
-from os import walk
-from zipfile import ZipFile
 import re
+from os import walk
+from pathlib import Path
 from statistics import median_grouped
 from time import sleep
+from zipfile import ZipFile
 import cv2
 import numpy as np
 from sklearn.linear_model import LinearRegression
@@ -51,28 +51,31 @@ def read_number(clue_img, digit_imgs, index_str):
     v = (v - v_lower) * 255 / (v_upper - v_lower)
 
     black = cv2.inRange(v, 0, 40)
-    contours, _ = cv2.findContours(black, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    x, y, w, h = merge_bounding_rects(cv2.boundingRect(cnt) for cnt in contours)
+    contours, _ = cv2.findContours(
+        black, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    x, y, w, h = merge_bounding_rects(
+        cv2.boundingRect(cnt) for cnt in contours)
     y, h = (y + h / 2 - ch * 0.35), ch * 0.7
     x, y, w, h = map(int, (x, y, w, h))
-    
+
     v = np.uint8(np.clip(v, 0, 255))
     col = background_color(clue_hsv)
-    background_mask = cv2.bitwise_not(cv2.inRange(clue_hsv, col - 10, col + 10))
+    background_mask = cv2.bitwise_not(
+        cv2.inRange(clue_hsv, col - 10, col + 10))
     v = cv2.bitwise_and(v, v, mask=background_mask)
     v = v[y:y+h, x:x+w]
 
     v_threshold = 0.8
     v = np.clip(1 + (v.astype(float) / 255 - v_threshold) * 3, 0, 1)
     v = (v * 255).astype(np.uint8)
-    
+
     v_blur = cv2.blur(v, (20, 20))
     v_blur = cv2.inRange(v, 100, 255)
-    contours, _ = cv2.findContours(v_blur, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    x, y, w, h = merge_bounding_rects(cv2.boundingRect(cnt) for cnt in contours)
+    contours, _ = cv2.findContours(
+        v_blur, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    x, y, w, h = merge_bounding_rects(
+        cv2.boundingRect(cnt) for cnt in contours)
     v = v[:, x:x+w]
-    #cv2.imshow('v', v)
-    #cv2.waitKey(0) 
 
     h, w = v.shape
     ratio, new_h = w / h, 28
@@ -82,8 +85,8 @@ def read_number(clue_img, digit_imgs, index_str):
     ratio = w / h
 
     x_pad, y_pad = abs(50 - w) // 2, 3
-    v_paddings = cv2.copyMakeBorder(v, y_pad, y_pad, x_pad, x_pad, cv2.BORDER_CONSTANT)
-
+    v_paddings = cv2.copyMakeBorder(
+        v, y_pad, y_pad, x_pad, x_pad, cv2.BORDER_CONSTANT)
     scores_x = []
     scores_xx = []
     for d_img, digit in digit_imgs:
@@ -127,7 +130,7 @@ def read_puzzle(img):
     bounding_rects = [cv2.boundingRect(cnt) for cnt in contours]
     cws, chs = [t[2] for t in bounding_rects], [t[3] for t in bounding_rects]
     cw, ch = median_grouped(cws) + 1, median_grouped(chs) + 1
-    r, c = int(gw / cw), int(gh / ch)
+    c, r = int(gw / cw), int(gh / ch)
     # print(r, c)
     r, c = int(r / 5 + .5) * 5, int(c / 5 + .5) * 5
     cw, ch = gw / c, gh / r
@@ -144,7 +147,8 @@ def read_puzzle(img):
             zfile = ZipFile(f'images/digits/{fn}', 'r')
             for name in zfile.namelist():
                 digit = int(re.match(r'\d+', name).group())
-                d_img = cv2.imdecode(np.frombuffer(zfile.read(name), np.uint8), 1)
+                d_img = cv2.imdecode(np.frombuffer(
+                    zfile.read(name), np.uint8), 1)
                 digit_imgs.append((d_img, digit))
             zfile.close()
         elif fn.endswith('.png'):
@@ -156,9 +160,10 @@ def read_puzzle(img):
         d_img = cv2.split(cv2.cvtColor(d_img, cv2.COLOR_RGB2HSV))[2]
         h, w = d_img.shape
         x_pad, y_pad = max(28 - w, 0) // 2, 0
-        d_img = cv2.copyMakeBorder(d_img, y_pad, y_pad, x_pad, x_pad, cv2.BORDER_CONSTANT)
+        d_img = cv2.copyMakeBorder(
+            d_img, y_pad, y_pad, x_pad, x_pad, cv2.BORDER_CONSTANT)
         digit_imgs[i] = d_img, digit
-        
+
     digit_imgs = sorted(digit_imgs, key=lambda t: t[1])
 
     # read number clues
@@ -168,30 +173,36 @@ def read_puzzle(img):
     for j in range(r):
         # print(j)
         for i in range(20):
-            ys, ye = int(gy + ch * j + margin), int(gy + ch * j) + int(ch) - margin
-            xs, xe = int(gx - cw * i) - int(cw) + margin - 1, int(gx - cw * i) - margin - 1
+            ys, ye = int(gy + ch * j + margin), int(gy +
+                                                    ch * j) + int(ch) - margin
+            xs, xe = int(gx - cw * i) - int(cw) + margin - \
+                1, int(gx - cw * i) - margin - 1
             if xs < 0:
                 break
             clue_img = img[ys:ye, xs:xe].copy()
             digit = read_number(clue_img, digit_imgs, f'h{j:02d}{i:02d}')
             if digit is None:
                 break
-            col = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 125, 0], [0, 125, 255]][digit % 5]
+            col = [[255, 0, 0], [0, 255, 0], [0, 0, 255],
+                   [255, 125, 0], [0, 125, 255]][digit % 5]
             col = np.array(col) * (0.3 if digit >= 10 else 1.0)
             cv2.rectangle(img_debug, (xs, ys), (xe, ye), col, 2)
             clues_h[j].append(digit)
     for i in range(c):
         # print(i)
         for j in range(20):
-            xs, xe = int(gx + cw * i + margin), int(gx + cw * i) + int(cw) - margin
-            ys, ye = int(gy - ch * j) - int(ch) + margin - 1, int(gy - ch * j) - margin - 1
+            xs, xe = int(gx + cw * i + margin), int(gx +
+                                                    cw * i) + int(cw) - margin
+            ys, ye = int(gy - ch * j) - int(ch) + margin - \
+                1, int(gy - ch * j) - margin - 1
             if ys < 0:
                 break
             clue_img = img[ys:ye, xs:xe].copy()
             digit = read_number(clue_img, digit_imgs, f'v{j:02d}{i:02d}')
             if digit is None:
                 break
-            col = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 125, 0], [0, 125, 255]][digit % 5]
+            col = [[255, 0, 0], [0, 255, 0], [0, 0, 255],
+                   [255, 125, 0], [0, 125, 255]][digit % 5]
             col = np.array(col) * (0.4 if digit >= 10 else 1.0)
             cv2.rectangle(img_debug, (xs, ys), (xe, ye), col, 2)
             clues_v[i].append(digit)
@@ -202,8 +213,8 @@ def read_puzzle(img):
     for s, cs in zip(('clues-h: ', 'clues-v: '), (clues_h, clues_v)):
         print(s + ' / '.join(' '.join(map(str, t)) for t in cs))
 
-    cv2.imwrite(f'images/output/clue_debug{r,c,sum(map(len, clues_h))}.png', img_debug)
-    print(f'images/output/clue_debug{r,c,sum(map(len, clues_h))}.png')
+    cv2.imwrite(
+        f'images/output/clue_debug{r,c,sum(map(len, clues_h))}.png', img_debug)
     return grid_rect, clues
 
 
@@ -212,14 +223,15 @@ def test():
         filename = f'images/test/{n}.png'
         img = cv2.imread(filename)
         return img
-    for n in [1,'1x', 2, 3, 4, 5, 6, 7]:
+    for n in [1, '1x', 2, 3, 4, 5, 6, 7]:
         _, clues = read_puzzle(get_image(n))
         grid = nonogram.Nonogram(clues, callback=None).solve()
         nonogram.print_grid(grid)
 
 
 def test_interactive():
-    from PIL import ImageGrab 
+    from PIL import ImageGrab
+    import time
     import win32gui
     import threading
     from pynput import mouse, keyboard
@@ -235,26 +247,39 @@ def test_interactive():
             x, y = win32gui.ClientToScreen(hwnd, (x, y))
             x1, y1 = win32gui.ClientToScreen(hwnd, (x1, y1))
             bbox = (x, y, x1, y1)
+
+            mouse_controller = mouse.Controller()
+            pos_backup = mouse_controller.position
+            mouse_controller.position = (x + 10, y + 10)
+            sleep(0.1)
             img = ImageGrab.grab(bbox)
-            return img 
-        except Exception as e: 
+            mouse_controller.position = pos_backup
+            
+            return img
+        except Exception as e:
             print(e)
             return None
 
-    def solve_task():
+    def capture_and_solve_task():
+
         try:
-            img = get_image()  
+            img = get_image()
             img = np.array(img)
             img_rgb = cv2.cvtColor(np.array(img), cv2.COLOR_BGR2RGB)
             grid_rect, clues = read_puzzle(img)
+            time_start = time.process_time()
             grid = nonogram.Nonogram(clues, callback=None).solve()
+            if grid is None:
+                return None, None
+            time_end = time.process_time()
+            print(f'nonogram solved ({time_end - time_start:.3f}s)')
             nonogram.print_grid(grid)
             return grid_rect, grid
         except Exception as e:
             print(e)
             return None, None
 
-    def fill_grid(grid_rect, grid):
+    def fill_task(grid_rect, grid):
         try:
             hwnd = win32gui.FindWindow(None, 'Pictopix')
             if not hwnd:
@@ -263,10 +288,10 @@ def test_interactive():
             keyboard_controller = keyboard.Controller()
             gx, gy, gw, gh = grid_rect
             r, c = len(grid), len(grid[0])
-            grid_pos = {(i, j): 
-                (int(gx + gw * (2 * i + 1) / (2 * c)), 
-                int(gy + gh * (2 * j + 1) / (2 * r))) 
-                for j in range(r) for i in range(c)}
+            grid_pos = {(i, j):
+                        (int(gx + gw * (2 * i + 1) / (2 * c)),
+                         int(gy + gh * (2 * j + 1) / (2 * r)))
+                        for j in range(r) for i in range(c)}
 
             indices = grid_pos.keys()
             indices_0 = [(i, j) for (i, j) in indices if grid[j][i] == 0]
@@ -289,31 +314,44 @@ def test_interactive():
 
     task_thread_active, task_thread = False, None
     grid_rect, grid = None, None
+
+    def task_wrapper(func):
+        nonlocal task_thread_active
+        task_thread_active = True
+        func()
+        task_thread_active = False
+
     def on_press(key):
         if key == keyboard.KeyCode(char='q'):
-            return False    
+            return False
         if not task_thread_active:
-            if key == keyboard.KeyCode(char='t'):
+            if str(key) in 't y r'.split():
                 print(f'key {key} pressed')
-                def task_wrapper():
-                    nonlocal task_thread_active, grid_rect, grid
-                    task_thread_active = True
-                    grid_rect, grid = solve_task()
-                    task_thread_active = False
-                task_thread = threading.Thread(target=task_wrapper)
+            if key == keyboard.KeyCode(char='t'):
+                @task_wrapper
+                def func1():
+                    nonlocal grid_rect, grid
+                    grid_rect, grid = capture_and_solve_task()
+                task_thread = threading.Thread(target=func1)
                 task_thread.start()
             elif key == keyboard.KeyCode(char='y') and grid_rect is not None:
-                print(f'key {key} pressed')
-                def task_wrapper():
-                    nonlocal task_thread_active
-                    task_thread_active = True
-                    fill_grid(grid_rect, grid)
-                    task_thread_active = False
-                task_thread = threading.Thread(target=task_wrapper)
+                @task_wrapper 
+                def func2():
+                    fill_task(grid_rect, grid)
+                task_thread = threading.Thread(target=func2)
+                task_thread.start()
+            elif key == keyboard.KeyCode(char='r'):
+                @task_wrapper
+                def func3():
+                    grid_rect, grid = capture_and_solve_task()
+                    if grid_rect is not None:
+                        fill_task(grid_rect, grid)
+                task_thread = threading.Thread(target=func3)
                 task_thread.start()
 
     with keyboard.Listener(on_press=on_press) as key_listener:
         key_listener.join()
+
 
 if __name__ == "__main__":
     test_interactive()
