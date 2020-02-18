@@ -1,6 +1,7 @@
 import re
 from os import walk
 from pathlib import Path
+import shutil
 from statistics import median_grouped
 from time import sleep
 from zipfile import ZipFile
@@ -25,7 +26,20 @@ def merge_bounding_rects(rectangles):
     return x, y, w, h
 
 
-def read_number(clue_img, digit_imgs, index_str):
+def crop_or_pad_center(img, formatted_size):
+    h, w = img.shape[0:2] 
+    fw, fh = formatted_size
+    x_2pad, y_pad = abs(fw - w), 3
+    left_pad, right_pad = x_2pad // 2, (x_2pad + 1) // 2
+    if w < fw:
+        img_paddings = cv2.copyMakeBorder(img, y_pad, y_pad, left_pad, right_pad, cv2.BORDER_CONSTANT)
+    elif w > fw:
+        img_paddings = img[:, left_pad:(-right_pad)]
+        img_paddings = cv2.copyMakeBorder(img_paddings, y_pad, y_pad, 0, 0, cv2.BORDER_CONSTANT)
+    return img_paddings
+
+
+def format_number_image(clue_img):
     clue_w, clue_h = clue_img.shape[1], clue_img.shape[0]
     ratio, new_h = clue_w / clue_h, 100
     clue_img = cv2.resize(clue_img, (int(new_h * ratio),
@@ -81,12 +95,19 @@ def read_number(clue_img, digit_imgs, index_str):
     ratio, new_h = w / h, 28
     v = cv2.resize(v, (int(new_h * ratio), new_h))
     h, w = v.shape
-    img_out = v.copy()
     ratio = w / h
 
-    x_pad, y_pad = abs(50 - w) // 2, 3
-    v_paddings = cv2.copyMakeBorder(
-        v, y_pad, y_pad, x_pad, x_pad, cv2.BORDER_CONSTANT)
+    return v
+    
+
+def match_number(clue_img, digit_imgs):
+    v = format_number_image(clue_img)
+    if v is None:
+        return None
+    v_paddings = crop_or_pad_center(v, (36, 32))
+
+    img_out = v_paddings.copy()
+
     scores_x = []
     scores_xx = []
     for d_img, digit in digit_imgs:
@@ -100,10 +121,10 @@ def read_number(clue_img, digit_imgs, index_str):
     s1, d1 = max(scores_x)
     s2, d2 = max(scores_xx)
     digit = max([(s1, d1), (s2, d2)])[1]
-    Path("images/output").mkdir(parents=True, exist_ok=True)
-    if score < 0.9:
+
+    # if score < 0.98:
         #cv2.imwrite(f'images/output/p{int(100 * score)}_r{digit}_{index_str}.png', img_out)
-        cv2.imwrite(f'images/output/p{int(100 * score)}_{digit}.png', img_out)
+    cv2.imwrite(f'images/output/r{digit:02d}_p{score*100:02.2f}.png', img_out)
     #cv2.imwrite(f'images/output/{30-int(index_str[3:])}.png', img_out)
     return digit
 
@@ -159,28 +180,29 @@ def read_puzzle(img):
         d_img, digit = digit_imgs[i]
         d_img = cv2.split(cv2.cvtColor(d_img, cv2.COLOR_RGB2HSV))[2]
         h, w = d_img.shape
-        x_pad, y_pad = max(28 - w, 0) // 2, 0
-        d_img = cv2.copyMakeBorder(
-            d_img, y_pad, y_pad, x_pad, x_pad, cv2.BORDER_CONSTANT)
+        d_img = crop_or_pad_center(d_img, (32, 28))
         digit_imgs[i] = d_img, digit
 
     digit_imgs = sorted(digit_imgs, key=lambda t: t[1])
 
+
     # read number clues
+    shutil.rmtree('images/output', ignore_errors=True)
+    Path("images/output").mkdir(parents=True, exist_ok=True)
     img_debug = img.copy()
     clues_h, clues_v = [[] for _ in range(r)], [[] for _ in range(c)]
     margin = 1
     for j in range(r):
         # print(j)
         for i in range(20):
-            ys, ye = int(gy + ch * j + margin), int(gy +
-                                                    ch * j) + int(ch) - margin
-            xs, xe = int(gx - cw * i) - int(cw) + margin - \
-                1, int(gx - cw * i) - margin - 1
+            ys = int(gy + ch * j + margin)
+            ye = int(gy + ch * j) + int(ch) - margin
+            xs = int(gx - cw * i) - int(cw) + margin - 1
+            xe = int(gx - cw * i) - margin - 1
             if xs < 0:
                 break
             clue_img = img[ys:ye, xs:xe].copy()
-            digit = read_number(clue_img, digit_imgs, f'h{j:02d}{i:02d}')
+            digit = match_number(clue_img, digit_imgs)
             if digit is None:
                 break
             col = [[255, 0, 0], [0, 255, 0], [0, 0, 255],
@@ -191,14 +213,14 @@ def read_puzzle(img):
     for i in range(c):
         # print(i)
         for j in range(20):
-            xs, xe = int(gx + cw * i + margin), int(gx +
-                                                    cw * i) + int(cw) - margin
-            ys, ye = int(gy - ch * j) - int(ch) + margin - \
-                1, int(gy - ch * j) - margin - 1
+            xs = int(gx + cw * i + margin)
+            xe = int(gx + cw * i) + int(cw) - margin
+            ys = int(gy - ch * j) - int(ch) + margin - 1
+            ye = int(gy - ch * j) - margin - 1
             if ys < 0:
                 break
             clue_img = img[ys:ye, xs:xe].copy()
-            digit = read_number(clue_img, digit_imgs, f'v{j:02d}{i:02d}')
+            digit = match_number(clue_img, digit_imgs)
             if digit is None:
                 break
             col = [[255, 0, 0], [0, 255, 0], [0, 0, 255],
@@ -261,7 +283,6 @@ def test_interactive():
             return None
 
     def capture_and_solve_task():
-
         try:
             img = get_image()
             img = np.array(img)
@@ -286,6 +307,8 @@ def test_interactive():
                 raise Exception("pictopix not running")
             mouse_controller = mouse.Controller()
             keyboard_controller = keyboard.Controller()
+
+            pos_backup = mouse_controller.position
             gx, gy, gw, gh = grid_rect
             r, c = len(grid), len(grid[0])
             grid_pos = {(i, j):
@@ -296,8 +319,8 @@ def test_interactive():
             indices = grid_pos.keys()
             indices_0 = [(i, j) for (i, j) in indices if grid[j][i] == 0]
             indices_1 = [(i, j) for (i, j) in indices if grid[j][i] == 1]
-            # indices = indices_0 + indices_1
-            indices = indices_1
+            indices = indices_1 + indices_0
+            # indices = indices_1
             for (i, j) in indices:
                 pos = win32gui.ClientToScreen(hwnd, grid_pos[(i, j)])
                 mouse_controller.position = pos
@@ -309,6 +332,7 @@ def test_interactive():
                 keyboard_controller.press(key)
                 keyboard_controller.release(key)
                 sleep(0.05)
+            mouse_controller.position = pos_backup
         except Exception as e:
             print(e)
 
