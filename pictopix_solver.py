@@ -1,5 +1,7 @@
 import re
 import shutil
+import time
+from collections import deque
 from os import walk
 from pathlib import Path
 from statistics import median_grouped
@@ -8,6 +10,9 @@ from zipfile import ZipFile
 
 import cv2
 import numpy as np
+import win32gui
+from PIL import ImageGrab
+from pynput import keyboard, mouse
 from sklearn.linear_model import LinearRegression
 
 import nonogram
@@ -125,9 +130,7 @@ def match_number(clue_img, digit_imgs):
     digit = max([(s1, d1), (s2, d2)])[1]
 
     # if score < 0.98:
-    #     cv2.imwrite(f'images/output/p{int(100 * score)}_r{digit}_{index_str}.png', img_out)
     cv2.imwrite(f"images/output/r{digit:02d}_p{score*100:02.2f}.png", img_out)
-    # cv2.imwrite(f'images/output/{30-int(index_str[3:])}.png', img_out)
     return digit
 
 
@@ -175,8 +178,7 @@ def read_puzzle(img):
             digit = int(re.match(r"\d+", fn).group())
             d_img = cv2.imread(f"images/digits/{fn}")
             digit_imgs.append((d_img, digit))
-    for i in range(len(digit_imgs)):
-        d_img, digit = digit_imgs[i]
+    for i, (d_img, digit) in enumerate(digit_imgs):
         d_img = cv2.split(cv2.cvtColor(d_img, cv2.COLOR_RGB2HSV))[2]
         d_img = crop_or_pad_center(d_img, (32, 28))
         digit_imgs[i] = d_img, digit
@@ -249,12 +251,6 @@ def test():
 
 
 def test_interactive():
-    from collections import deque
-    from PIL import ImageGrab
-    import time
-    import win32gui
-    from pynput import mouse, keyboard
-
     def get_image():
         try:
             hwnd = win32gui.FindWindow(None, "Pictopix")
@@ -363,7 +359,6 @@ def test_interactive():
         return f
 
     task_it = None
-    # key_listener = keyboard.Listener(on_press=on_press)
     key_listener = keyboard.GlobalHotKeys(
         {
             "<ctrl>+z": command("quit", ignore_block=True),
